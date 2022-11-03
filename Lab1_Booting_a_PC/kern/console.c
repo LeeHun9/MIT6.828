@@ -192,12 +192,14 @@ cga_putc(int c)
 	}
 
 	// What is the purpose of this?
-	if (crt_pos >= CRT_SIZE) {
+	if (crt_pos >= CRT_SIZE) {	// 显示字符数超过CRT一屏可显示的字符数
 		int i;
 
 		memmove(crt_buf, crt_buf + CRT_COLS, (CRT_SIZE - CRT_COLS) * sizeof(uint16_t));
+		//CRT显示器需要对其用空格擦写才能去掉本来already显示了的字符
 		for (i = CRT_SIZE - CRT_COLS; i < CRT_SIZE; i++)
 			crt_buf[i] = 0x0700 | ' ';
+		//显示起点退回到最后一行起始
 		crt_pos -= CRT_COLS;
 	}
 
@@ -453,7 +455,7 @@ cons_init(void)
 // `High'-level console I/O.  Used by readline and cprintf.
 
 void
-cputchar(int c)
+cputchar(int c)		// call cons_putc(output a character to the console), called by putch, 
 {
 	cons_putc(c);
 }

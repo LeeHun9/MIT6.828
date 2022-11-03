@@ -7,7 +7,7 @@
 
 
 static void
-putch(int ch, int *cnt)
+putch(int ch, int *cnt)		// put char, and cnt++(cnt record the num of the printed chars)
 {
 	cputchar(ch);
 	*cnt++;
