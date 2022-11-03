@@ -274,6 +274,22 @@ run 5 times `test_backtrace`, the stack:
 0xf010efbc:	0xf010004a	0xf0110308	0x00010094	0xf010eff8
 0xf010efcc:	0xf0100133	0x00000005	0x0000e110	0xf010efec
 0xf010efdc:	0x00000000	0x00000000	0x00000000	0x00000000
+```
+when init() first call test_backtrace, the stack:
+```asm
+0xf010efb0:	0x00000004	0x00000005	0xf010eff8	0xf010004a
+0xf010efc0:	0xf0110308	0x00010094	0xf010eff8	0xf0100133
+```
+`0xf0100133` is the next instrucion in init(), then push ebp `0xf010eff8`, `0x00000005` is the local variable, `0x00000004` is args for next test_backtrace call. When entry the second call, push next inst addr `0xf0100076` of `call test_backtrace`.
 
+
+The above exercise give us the information  need to implement a stack backtrace function `mon_backtrace()`. A prototype for this function is in `kern/monitor.c`. The `read_ebp()`function in `inc/x86.h` may be useful.
+
+The backtrace function should display a listing of function call frames in the following format: Each line contains an ebp, eip, and args
+```
+Stack backtrace:
+  ebp f0109e58  eip f0100a62  args 00000001 f0109e80 f0109e98 f0100ed2 00000031
+  ebp f0109ed8  eip f01000d6  args 00000000 00000000 f0100058 f0109f28 00000061
+  ...
 ```
 
