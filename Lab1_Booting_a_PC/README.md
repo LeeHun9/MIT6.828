@@ -76,7 +76,15 @@ The target architecture is set to "i8086".
 - The PC starts executing with `CS = 0xf000` and `IP = 0xfff0`.
 - The first instruction to be executed is a jmp instruction, which jumps to the segmented address `CS = 0xf000` and `IP = 0xe05b`.
 
-## The Boot Loader
+## Part2: The Boot Loader
+Floppy and hard disks for PCs are divided into 512 byte regions called `sectors`.A sector is the disk's minimum transfer granularity. If the disk is bootable, the first sector is called `the boot sector`, since this is where the boot loader code resides. When the BIOS finds a bootable floppy or hard disk, it loads the 512-byte boot sector into memory at physical addresses `0x7c00` through `0x7dff`, and then uses a jmp instruction to set the `CS:IP` to `0000:7c00`, passing control to the boot loader.
+
+The ability to boot from a CD-ROM came much later, CD-ROMs use a sector size of 2048 bytes instead of 512, and the BIOS can load a much larger boot image from the disk into memory before transferring control to it. But this lab will use  the conventional hard drive boot mechanism(from hard disk or floppy).
+
+The boot loader must perform two main functions:
+- First, the boot loader switches the processor from real mode to 32-bit protected mode.
+- Second, the boot loader reads the kernel from the hard disk by directly accessing the IDE disk device registers via the x86's special I/O instructions.
+
 > Exercise 3: trace into bootmain(), then into seadsect, then back to bootmain()
 > 
 > Q1: At what point does the processor start executing 32-bit code? What exactly causes the switch from 16- to 32-bit mode?
@@ -257,7 +265,7 @@ f0100034:	bc 00 f0 10 f0       	mov    $0xf010f000,%esp
   ```
 - stack space is 0xF0107000~0xF010F000
 
-Exercise 10: 
+Exercise 10 and 11: 
 
 run 5 times `test_backtrace`, the stack: 
 ```
@@ -292,4 +300,138 @@ Stack backtrace:
   ebp f0109ed8  eip f01000d6  args 00000000 00000000 f0100058 f0109f28 00000061
   ...
 ```
+
+
+As we can see in entry.S, before call to `i386_init`, set the ebp to zero. So we make `ebp == 0` our Termination condition.
+My code:
+```c
+int
+mon_backtrace(int argc, char **argv, struct Trapframe *tf)
+{
+	// Your code here.
+
+	cprintf("Stack backtrace:\n");
+	// ebp 
+	uint32_t* ebp = (uint32_t*)read_ebp();
+	
+	while(ebp!=0){
+		// print the result to the console
+		cprintf("ebp %08x eip %08x args %08x %08x %08x %08x %08x\n", ebp[0], ebp[1],
+				 ebp[2], ebp[3], ebp[4], ebp[5], ebp[6]);
+		ebp = (uint32_t*)*ebp;
+	}
+	
+	return 0;
+}
+```
+
+```
+Stack backtrace:
+ebp f010ef28 eip f01000a1 args 00000000 00000000 00000000 f010004a f0110308
+ebp f010ef48 eip f0100076 args 00000000 00000001 f010ef68 f010004a f0110308
+ebp f010ef68 eip f0100076 args 00000001 00000002 f010ef88 f010004a f0110308
+ebp f010ef88 eip f0100076 args 00000002 00000003 f010efa8 f010004a f0110308
+ebp f010efa8 eip f0100076 args 00000003 00000004 f010efb8 f010004a f0110308
+ebp f010efc8 eip f0100076 args 00000004 00000005 f010eff8 f010004a f0110308
+ebp f010eff8 eip f0100133 args 00000005 0000e110 f010efec 00000000 00000000
+ebp 00000000 eip f010003e args 00000003 00001003 00002003 00003003 00004003
+```
+now add to the command:
+```c
+static struct Command commands[] = {
+	{ "help", "Display this list of commands", mon_help },
+	{ "kerninfo", "Display information about the kernel", mon_kerninfo },
+	{"stkbt", "backtrace the call stack until the i386_init", mon_backtrace},
+};
+```
+
+Exercise 12: Modify your stack backtrace function to display, for each eip, the function name, source file name, and line number corresponding to that eip.
+
+Q1: In `debuginfo_eip`, where do \_\_STAB_* come from?
+
+A1: line 26-40 in `kern/kernel.ld`, point to ELF .stab section, including debugging information. It's linked to kernel and loaded into kernel memory.
+```
+/* Include debugging information in kernel memory */
+	.stab : {
+		PROVIDE(__STAB_BEGIN__ = .);
+		*(.stab);
+		PROVIDE(__STAB_END__ = .);
+		BYTE(0)		/* Force the linker to allocate space
+				   for this section */
+	}
+```
+`objdump -h obj/kern/kernel` print section .stab and .stabstr. `objdump -G obj/kern/kernel` print contents of .stab section. Thus `debuginfo_eip` can read debug information for .stab section. Also that's why use \_\_STAB_*.
+
+```
+➜  Lab1_Booting_a_PC git:(master) ✗ objdump -G obj/kern/kernel          
+obj/kern/kernel:     file format elf32-i386
+Contents of .stab section:
+Symnum n_type n_othr n_desc n_value  n_strx String
+-1     HdrSym 0      1224   00001659 1     
+0      SO     0      0      f0100000 1      {standard input}
+1      SOL    0      0      f010000c 18     kern/entry.S
+2      SLINE  0      44     f010000c 0      
+3      SLINE  0      57     f0100015 0      
+4      SLINE  0      58     f010001a 0      
+5      SLINE  0      60     f010001d 0      
+6      SLINE  0      61     f0100020 0      
+...
+```
+`debuginfo_eip` call `stab_binsearch` to binsearch the the entry corresponding to the address. Then assign to struct `Eipdebuginfo`.
+
+
+Complete the implementation of debuginfo_eip:
+```c
+// Search within [lline, rline] for the line number stab.
+// If found, set info->eip_line to the right line number.
+// If not found, return -1.
+//
+// Hint:
+//	There's a particular stabs type used for line numbers.
+//	Look at the STABS documentation and <inc/stab.h> to find
+//	which one.
+// Your code here.
+stab_binsearch(stabs, &lline, &rline, N_SLINE, addr);
+if(lline <= rline) 
+	info->eip_line = stabs[lline].n_desc;
+else
+	return -1;
+```
+
+`kedebug.h` provides the information we need to modify our code. Moreover function `debuginfo_eip(uintptr_t addr, struct Eipdebuginfo *info)` is the interface to get those information.
+```c
+// Debug information about a particular instruction pointer
+struct Eipdebuginfo {
+	const char *eip_file;		// Source code filename for EIP
+	int eip_line;			// Source code linenumber for EIP
+
+	const char *eip_fn_name;	// Name of function containing EIP
+					//  - Note: not null terminated!
+	int eip_fn_namelen;		// Length of function name
+	uintptr_t eip_fn_addr;		// Address of start of function
+	int eip_fn_narg;		// Number of function arguments
+};
+```
+
+refine the code in Exercise 10 and 11:
+```c
+struct Eipdebuginfo info;
+if(debuginfo_eip((uintptr_t)ebp[1], &info) == 0) {
+	cprintf("\t%s:%d:%.*s+%d\n", info.eip_file, info.eip_line, info.eip_fn_namelen ,info.eip_fn_name, ebp[1] - info.eip_fn_addr);
+}		
+```
+```
+K> stkbt
+Stack backtrace:
+ebp f010ffc8 eip f0100ab6 args 00000001 f010ff70 00000000 f0100b1a f0100ac9
+	     kern/monitor.c:140:monitor+333
+ebp f010fff8 eip f0100140 args 00000000 0000e110 f010ffec 00000000 00000000
+	     kern/init.c:49:i386_init+154
+ebp 00000000 eip f010003e args 00000003 00001003 00002003 00003003 00004003
+	     kern/entry.S:83:<unknown>+0
+
+```
+
+So far, Lab1 finished!
+
 
