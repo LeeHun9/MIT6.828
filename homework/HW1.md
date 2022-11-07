@@ -61,3 +61,5 @@ To understand stack content, check out `bootasm.S`, `bootmain.c`, and `bootblock
 - 0x00007d87: bootmain.c entry() return addr instruction
 - 0x00007c4d: bootmain() return addr
 - the content between them are args and ebp pushed by bootmain().
+
+read the appenxid and source code
