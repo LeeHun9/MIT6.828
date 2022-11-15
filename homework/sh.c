@@ -61,8 +61,24 @@ runcmd(struct cmd *cmd)
     ecmd = (struct execcmd*)cmd;
     if(ecmd->argv[0] == 0)
       _exit(0);
-    fprintf(stderr, "exec not implemented\n");
+    //fprintf(stderr, "exec not implemented\n");
     // Your code here ...
+    if(access(ecmd->argv[0], F_OK) == 0) {
+      execv(ecmd->argv[0], ecmd->argv);
+    }
+    else {
+      const char* BinPath = "/bin/";
+      int PathLen = strlen(BinPath) + strlen(ecmd->argv[0]);
+      char* Abs_Path = (char*)malloc(PathLen+1);
+      strcpy(Abs_Path, BinPath);
+      strcat(Abs_Path, ecmd->argv[0]);
+      if(access(Abs_Path, F_OK) == 0) {
+        execv(Abs_Path, ecmd->argv);
+      }
+      else {
+        fprintf(stderr, "%s Command not found\n", ecmd->argv[0]);
+      }
+    }
     break;
 
   case '>':
@@ -103,15 +119,18 @@ main(void)
   // Read and run input commands.
   while(getcmd(buf, sizeof(buf)) >= 0){
     if(buf[0] == 'c' && buf[1] == 'd' && buf[2] == ' '){
+      // if "cd", change folder and wait for commands
       // Clumsy but will have to do for now.
       // Chdir has no effect on the parent if run in the child.
-      buf[strlen(buf)-1] = 0;  // chop \n
+      buf[strlen(buf)-1] = 0;  // chop \n to '\0'
       if(chdir(buf+3) < 0)
         fprintf(stderr, "cannot cd %s\n", buf+3);
       continue;
     }
+    // if not "cd", fork sub-process to run command
     if(fork1() == 0)
       runcmd(parsecmd(buf));
+    // wait for command
     wait(&r);
   }
   exit(0);
@@ -209,7 +228,7 @@ gettoken(char **ps, char *es, char **q, char **eq)
   return ret;
 }
 
-// whether chars in ps is one of the toks
+// whether chars between ps and es is one of the toks
 int
 peek(char **ps, char *es, char *toks)
 {
@@ -270,7 +289,7 @@ parsepipe(char **ps, char *es)
   struct cmd *cmd;
 
   cmd = parseexec(ps, es);
-  if(peek(ps, es, "|")){
+  if(peek(ps, es, "|")){      // if meet '|' call itself to parse later command
     gettoken(ps, es, 0, 0);
     cmd = pipecmd(cmd, parsepipe(ps, es));
   }
@@ -311,11 +330,11 @@ parseexec(char **ps, char *es)
   struct cmd *ret;
   
   ret = execcmd();
-  cmd = (struct execcmd*)ret;
+  cmd = (struct execcmd*)ret; // return cmd struct to execcmd struct
 
   argc = 0;
-  ret = parseredirs(ret, ps, es);
-  while(!peek(ps, es, "|")){
+  ret = parseredirs(ret, ps, es);           // parse redirect symbol like "<>"
+  while(!peek(ps, es, "|")){                // end while when meet '|'
     if((tok=gettoken(ps, es, &q, &eq)) == 0)
       break;
     if(tok != 'a') {
