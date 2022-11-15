@@ -84,8 +84,14 @@ runcmd(struct cmd *cmd)
   case '>':
   case '<':
     rcmd = (struct redircmd*)cmd;
-    fprintf(stderr, "redir not implemented\n");
+    //fprintf(stderr, "redir not implemented\n");
     // Your code here ...
+    // fprintf(stdout, "rcmd->fd = %d\n", rcmd->fd);
+    close(rcmd->fd);      // here rcmd->fd = 1(stdout)
+    if(open(rcmd->file, rcmd->flags, 0644) < 0) {  // redirect to stdin
+      fprintf(stderr, "Unable to open file: %s\n", rcmd->file);
+      exit(0);
+    }
     runcmd(rcmd->cmd);
     break;
 
