@@ -1,6 +1,6 @@
 study record for MIT6.828
 
-schedule:
+## schedule:
 ### LABs
 - [x] Lab 1: C, Assembly, Tools, and Bootstrapping
 - [ ] Lab 2: Memory management
