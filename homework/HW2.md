@@ -91,3 +91,77 @@ cat < x.txt
 > file descriptor 1 (standard output); 
 > 
 > file descriptor 2 (standard error)
+
+```c
+struct cmd*
+redircmd(struct cmd *subcmd, char *file, int type)
+{
+    struct redircmd *cmd;
+    
+    cmd = malloc(sizeof(*cmd));
+    memset(cmd, 0, sizeof(*cmd));
+    cmd->type = type;
+    cmd->cmd = subcmd;
+    cmd->file = file;
+    cmd->mode = (type == '<') ?  O_RDONLY : O_WRONLY|O_CREAT|O_TRUNC;
+    cmd->fd = (type == '<') ? 0 : 1;
+    return (struct cmd*)cmd;
+}
+```
+As we can see, struct rcmd have been defined, if '>' `rcmd->fd = 1(stdout)`; if '<' `cmd->fd = 0(stdin)`. So we just need to close fd in rcmd, and open the file we need to read/write. So that system will allocate the lowest fd to the file. And then call `runcmd()`. Code as follows:
+
+```c
+case '>':
+  case '<':
+    rcmd = (struct redircmd*)cmd;
+    //fprintf(stderr, "redir not implemented\n");
+    // Your code here ...
+    // fprintf(stdout, "rcmd->fd = %d\n", rcmd->fd);
+    close(rcmd->fd);      // if > rcmd->fd = 1(stdout); if < cmd->fd = 0(stdin)
+    if(open(rcmd->file, rcmd->flags, 0644) < 0) {  // redirect to stdin
+      fprintf(stderr, "Unable to open file: %s\n", rcmd->file);
+      exit(0);
+    }
+    runcmd(rcmd->cmd);
+    break;
+```
+
+#### Pipe
+
+system call `pipee(int p[])`, which creates a new pipe and records the read and write file descriptors in the array `p`. p[0] is read end, p[1] is write end.
+
+system call `dup(int old_fd)`, which duplicates a file descriptor that point to where old_df point, the new fd will be the lowest free fd.
+
+The following example code runs the program wc with standard input connected
+to the read end of a pipe.
+```c
+int p[2];
+char *argv[2];
+argv[0] = "wc";
+argv[1] = 0;
+pipe(p);
+if(fork() == 0) {
+close(0);
+dup(p[0]);
+close(p[0]);
+close(p[1]);
+exec("/bin/wc", argv);
+} else {
+close(p[0]);
+write(p[1], "hello world\n", 12);
+close(p[1]);
+}
+```
+The program calls pipe, which creates a new pipe and records the read and write file
+descriptors in the array p. After fork, both parent and child have file descriptors referring to the pipe. The child dups the read end onto file descriptor 0, closes the file descriptors in p, and execs wc. When wc reads from its standard input, it reads from the pipe. The parent closes the read side of the pipe, writes to the pipe, and then closes the write side.
+
+
+
+```c
+struct pipecmd {
+  int type;          // |
+  struct cmd *left;  // left side of pipe
+  struct cmd *right; // right side of pipe
+};
+```
+

@@ -67,15 +67,22 @@ runcmd(struct cmd *cmd)
       execv(ecmd->argv[0], ecmd->argv);
     }
     else {
-      const char* BinPath = "/bin/";
-      int PathLen = strlen(BinPath) + strlen(ecmd->argv[0]);
-      char* Abs_Path = (char*)malloc(PathLen+1);
-      strcpy(Abs_Path, BinPath);
-      strcat(Abs_Path, ecmd->argv[0]);
-      if(access(Abs_Path, F_OK) == 0) {
-        execv(Abs_Path, ecmd->argv);
+      const char* BinPath[] = {"/bin/", "/usr/bin/"};
+      
+      char* Abs_Path;// = (char*)malloc(PathLen+1);
+      int i, found=0;
+      for(i = 0; i < 2 && found==0; i++) {
+        int PathLen = strlen(BinPath[i]) + strlen(ecmd->argv[0]);
+        Abs_Path = (char*)malloc(PathLen+1);
+        strcpy(Abs_Path, BinPath[i]);
+        strcat(Abs_Path, ecmd->argv[0]);
+        if(access(Abs_Path, F_OK) == 0) {
+          execv(Abs_Path, ecmd->argv);
+          found = 1;
+        }
+        free(Abs_Path);
       }
-      else {
+      if(!found) {
         fprintf(stderr, "%s Command not found\n", ecmd->argv[0]);
       }
     }
@@ -87,7 +94,7 @@ runcmd(struct cmd *cmd)
     //fprintf(stderr, "redir not implemented\n");
     // Your code here ...
     // fprintf(stdout, "rcmd->fd = %d\n", rcmd->fd);
-    close(rcmd->fd);      // here rcmd->fd = 1(stdout)
+    close(rcmd->fd);      // if > rcmd->fd = 1(stdout); if < cmd->fd = 0(stdin)
     if(open(rcmd->file, rcmd->flags, 0644) < 0) {  // redirect to stdin
       fprintf(stderr, "Unable to open file: %s\n", rcmd->file);
       exit(0);
@@ -97,8 +104,31 @@ runcmd(struct cmd *cmd)
 
   case '|':
     pcmd = (struct pipecmd*)cmd;
-    fprintf(stderr, "pipe not implemented\n");
+    //fprintf(stderr, "pipe not implemented\n");
     // Your code here ...
+    if(pipe(p) < 0) fprintf(stderr, "pipe failed\n");
+    if(fork1() == 0) {  // <
+      // redirect stdout to p[1]
+      close(1);
+      dup(p[1]);
+      close(p[0]);
+      close(p[1]);
+      // write to stdout
+      runcmd(pcmd->left);
+    }
+    if(fork1() == 0) {  // >
+      // redirect stdin to p[0]
+      close(0);
+      dup(p[0]);
+      close(p[0]);
+      close(p[1]);
+      // read from stdin 
+      runcmd(pcmd->right);
+    }
+    close(p[0]);
+    close(p[1]);
+    wait(&r);
+    wait(&r);
     break;
   }    
   _exit(0);
@@ -175,7 +205,7 @@ redircmd(struct cmd *subcmd, char *file, int type)
   cmd->cmd = subcmd;
   cmd->file = file;
   cmd->flags = (type == '<') ?  O_RDONLY : O_WRONLY|O_CREAT|O_TRUNC;
-  cmd->fd = (type == '<') ? 0 : 1;
+  cmd->fd = (type == '<') ? 0 : 1;    // < : 0; > : 1
   return (struct cmd*)cmd;
 }
 
