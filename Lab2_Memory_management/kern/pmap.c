@@ -103,13 +103,13 @@ boot_alloc(uint32_t n)
 	//
 	// LAB 2: Your code here.
 	if(n == 0)
-		return nextfree;
+		return nextfree;		// if n == 0, return nextfree, not allocate any memory.
 	
 	result = nextfree;
-	nextfree += ROUNDUP(n, PGSIZE);
+	nextfree += ROUNDUP(n, PGSIZE);		// align to PGSIZE
 	return nextfree;
 
-	return NULL;
+	//return NULL;
 }
 
 // Set up a two-level page table:
