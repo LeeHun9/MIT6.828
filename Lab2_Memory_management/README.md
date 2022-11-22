@@ -14,7 +14,11 @@ git checkout -b lab2 origin/lab2
 
 JOS manages the PC's physical memory with `page` granularity, and use the MMU to map and protect each piece of allocated memory.
 
+Let's review this booting process. OS loads the bootsector to 0x7c00 first sets the environment, then call to bootmain in c code. bootmain loads the kernel and call into kernel entry. Kernel loads entry_pgdir to cr3 to enable Paging, then call `i386_init`. i386_init Clear the BSS, call `cons_init()` to set up the screen display device and making it ready for cprintf to run, then call `mem_init()`. Finally call monitor() to interact with users.
 
+Before calling to i386_int(), the memory distribution is shown in the figure below:
+
+![](../images/1.jpg)
 
 Now need to write **physical page allocator**, which keeps track of which pages are free with a linked list of `struct Pageinfo` objects(`memlayout.h` line 175). A object corresponding to a physical page.
 

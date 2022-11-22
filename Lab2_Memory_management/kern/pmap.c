@@ -94,7 +94,7 @@ boot_alloc(uint32_t n)
 	// to any kernel code or global variables.
 	if (!nextfree) {
 		extern char end[];
-		nextfree = ROUNDUP((char *) end, PGSIZE);
+		nextfree = ROUNDUP((char *) end, PGSIZE);	// round end up to PGSIZE
 	}
 
 	// Allocate a chunk large enough to hold 'n' bytes, then update
@@ -102,7 +102,12 @@ boot_alloc(uint32_t n)
 	// to a multiple of PGSIZE.
 	//
 	// LAB 2: Your code here.
+	if(n == 0)
+		return nextfree;
 	
+	result = nextfree;
+	nextfree += ROUNDUP(n, PGSIZE);
+	return nextfree;
 
 	return NULL;
 }
@@ -130,7 +135,7 @@ mem_init(void)
 
 	//////////////////////////////////////////////////////////////////////
 	// create initial page directory.
-	kern_pgdir = (pde_t *) boot_alloc(PGSIZE);
+	kern_pgdir = (pde_t *) boot_alloc(PGSIZE);		// 4KB
 	memset(kern_pgdir, 0, PGSIZE);
 
 	//////////////////////////////////////////////////////////////////////
