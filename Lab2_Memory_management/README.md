@@ -235,3 +235,78 @@ page_insert()
 
 **pgdir_walk()**
 Given 'pgdir', a pointer to a page directory, pgdir_walk returns a pointer to the page table entry (PTE) for linear address 'va'.
+
+```c
+pte_t *
+pgdir_walk(pde_t *pgdir, const void *va, int create)
+{
+	// Fill this function in
+	uint32_t page_dir_index = PDX(va);
+	uint32_t page_tab_index = PTX(va);
+	pte_t* PTT;
+	if(pgdir[page_dir_index] & PTE_P) {
+		PTT = KADDR(PTE_ADDR(pgdir[page_dir_index]));
+	}
+	else {
+		if(create) {
+			struct PageInfo* new_pi = page_alloc(ALLOC_ZERO);
+			if(new_pi) {
+				new_pi->pp_ref += 1;
+				PTT = (pte_t*)page2kva(new_pi);
+				// PAGESIZE align, later 12bit 0
+				pgdir[page_dir_index] = PADDR(PTT) | PTE_P | PTE_W | PTE_U;
+			}
+			else {
+				return NULL;
+			}
+		}
+		else {
+			return NULL;
+		}
+	}
+	return &PTT[page_tab_index];	// return PTE
+}
+```
+
+**page_lookup()**
+
+```c
+struct PageInfo *
+page_lookup(pde_t *pgdir, void *va, pte_t **pte_store)
+{
+	// Fill this function in
+	pte_t* pte = pgdir_walk(pgdir, va, 0);
+	if(pte == NULL) {
+		return NULL;
+	}
+	if(pte_store) {
+		*pte_store = pte;
+	}
+	return pa2page(PTE_ADDR(pte));
+}
+```
+
+**page_remove()**
+
+```c
+void
+page_remove(pde_t *pgdir, void *va)
+{
+	// Fill this function in
+	pte_t* PTT;
+	pte_t** pte_store = &PTT;
+	struct PageInfo* pi = page_lookup(pgdir, va, pte_store);
+	if(!pi) {
+		return;
+	}
+	page_decref(pi);
+	*PTT = 0;
+	tlb_invalidate(pgdir, va);
+}
+```
+
+**page_insert()**
+
+```c
+
+```
