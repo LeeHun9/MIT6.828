@@ -107,9 +107,7 @@ boot_alloc(uint32_t n)
 	
 	result = nextfree;
 	nextfree += ROUNDUP(n, PGSIZE);		// align to PGSIZE
-	return nextfree;
-
-	//return NULL;
+	return result;
 }
 
 // Set up a two-level page table:
@@ -131,7 +129,7 @@ mem_init(void)
 	i386_detect_memory();
 
 	// Remove this line when you're ready to test this function.
-	panic("mem_init: This function is not finished\n");
+	//panic("mem_init: This function is not finished\n");
 
 	//////////////////////////////////////////////////////////////////////
 	// create initial page directory.
@@ -157,9 +155,6 @@ mem_init(void)
 	pages = (struct PageInfo*) boot_alloc(npages * sizeof(struct PageInfo));
 	memset(pages, 0, npages * sizeof(struct PageInfo));
 	
-	
-
-
 	//////////////////////////////////////////////////////////////////////
 	// Now that we've allocated the initial kernel data structures, we set
 	// up the list of free physical pages. Once we've done so, all further
@@ -243,7 +238,7 @@ mem_init(void)
 //
 void
 page_init(void)
-{
+{	
 	// The example code here marks all physical pages as free.
 	// However this is not truly the case.  What memory is free?
 
@@ -315,7 +310,7 @@ page_alloc(int alloc_flags)
 	allocated_page->pp_link = NULL;
 
 	if(alloc_flags & ALLOC_ZERO) {
-		memset(page2kva(allocated_page), '/0', PGSIZE);
+		memset(page2kva(allocated_page), '\0', PGSIZE);
 	}
 
 	return allocated_page;
@@ -337,7 +332,7 @@ page_free(struct PageInfo *pp)
 	}
 
 	pp->pp_link = page_free_list;
-	page_free_list = &pp;
+	page_free_list = pp;
 }
 
 //
@@ -377,7 +372,18 @@ pte_t *
 pgdir_walk(pde_t *pgdir, const void *va, int create)
 {
 	// Fill this function in
-	return NULL;
+	uint32_t page_dir_index = PDX(va);
+	uint32_t page_tab_index = PTX(va);
+	pte_t* PTT;
+	if(pgdir[page_dir_index] & PTE_P) {
+		PTT = KADDR(PTE_ADDR(pgdir[page_dir_index]));
+	}
+	else {
+		if(create) {
+			struct PageInfo* new_pi = page_alloc()
+		}
+	}
+	return &PTT[page_tab_index];
 }
 
 //

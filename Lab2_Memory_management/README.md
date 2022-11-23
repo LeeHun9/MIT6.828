@@ -68,7 +68,7 @@ boot_alloc(uint32_t n)
 		return nextfree;		// if n == 0, return nextfree, not allocate any memory.
 	result = nextfree;
 	nextfree += ROUNDUP(n, PGSIZE);		// align to PGSIZE
-	return nextfree;
+	return result;
 }
 ```
 
@@ -193,3 +193,45 @@ page_free(struct PageInfo *pp)
 	page_free_list = &pp;
 }
 ```
+
+## Part2: Virtual Memory
+
+### Exercise2 familiarize  x86's protected-mode memory management architecture
+Look at chapters 5 and 6 of the Intel 80386 Reference Manual.
+
+
+![](../images/sd.png)
+
+detail in [Intel 80386 Reference Manual](https://pdos.csail.mit.edu/6.828/2018/readings/i386/toc.htm)
+
+### Virtual, Linear, and Physical Addresses
+
+```
+
+           Selector  +--------------+         +-----------+
+          ---------->|              |         |           |
+                     | Segmentation |         |  Paging   |
+Software             |              |-------->|           |---------->  RAM
+            Offset   |  Mechanism   |         | Mechanism |
+          ---------->|              |         |           |
+                     +--------------+         +-----------+
+            Virtual                   Linear                Physical
+```
+
+In `boot/boot.S`, we installed a Global Descriptor Table (GDT) that effectively **disabled segment translation** by setting all segment base addresses to 0 and limits to 0xffffffff. Hence the `"selector"` has no effect and the linear address always equals the offset of the virtual address. JOS focus solely on oage translation.
+
+the JOS source distinguishes the two cases: the type `uintptr_t` represents opaque virtual addresses, and `physaddr_t` represents physical addresses. But both are `uint32_t`.
+
+### Exercise4
+In the file `kern/pmap.c`, you must implement code for the following functions.
+```c
+pgdir_walk()
+boot_map_region()
+page_lookup()
+page_remove()
+page_insert()
+```
+`check_page()`, called from `mem_init()`, tests your page table management routines. You should make sure it reports success before proceeding.
+
+**pgdir_walk()**
+Given 'pgdir', a pointer to a page directory, pgdir_walk returns a pointer to the page table entry (PTE) for linear address 'va'.
