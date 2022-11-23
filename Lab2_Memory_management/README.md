@@ -72,5 +72,124 @@ boot_alloc(uint32_t n)
 }
 ```
 
+**mem_init()**
+
+Need to use `PageInfo` in `/inc/memlayout.h`
 
 
+```c
+struct PageInfo {
+	// Next page on the free list.
+	struct PageInfo *pp_link;
+
+	// pp_ref is the count of pointers (usually in page table entries)
+	// to this page, for pages allocated using page_alloc.
+	// Pages allocated at boot time using pmap.c's
+	// boot_alloc do not have valid reference count fields.
+
+	uint16_t pp_ref;
+};
+```
+
+code as discribe:
+
+```c
+//////////////////////////////////////////////////////////////////////
+	// Allocate an array of npages 'struct PageInfo's and store it in 'pages'.
+	// The kernel uses this array to keep track of physical pages: for
+	// each physical page, there is a corresponding struct PageInfo in this
+	// array.  'npages' is the number of physical pages in memory.  Use memset
+	// to initialize all fields of each struct PageInfo to 0.
+	// Your code goes here:
+	pages = (struct PageInfo*) boot_alloc(npages * sizeof(struct PageInfo));
+	memset(pages, 0, npages * sizeof(struct PageInfo));
+```
+
+**page_init**
+
+```c
+void
+page_init(void)
+{
+	// The example code here marks all physical pages as free.
+	// However this is not truly the case.  What memory is free?
+
+	//  1) Mark physical page 0 as in use.
+	//     This way we preserve the real-mode IDT and BIOS structures
+	//     in case we ever need them.  (Currently we don't, but...)
+	pages[0].pp_ref = 1;
+	//  2) The rest of base memory, [PGSIZE, npages_basemem * PGSIZE)
+	//     is free.
+	size_t i;
+	for (i = 1; i < npages_basemem; i++) {
+		pages[i].pp_ref = 0;
+		pages[i].pp_link = page_free_list;
+		page_free_list = &pages[i];
+	}
+	//  3) Then comes the IO hole [IOPHYSMEM, EXTPHYSMEM), which must
+	//     never be allocated.
+	for(i = IOPHYSMEM/PGSIZE, i < EXTPHYSMEM/PGSIZE, i++) {
+		pages[i].pp_ref = 1;
+	}
+	//  4) Then extended memory [EXTPHYSMEM, ...).
+	//     Some of it is in use, some is free. Where is the kernel
+	//     in physical memory?  Which pages are already in use for
+	//     page tables and other data structures?
+	size_t first_free = PADDR(boot_alloc(0));
+	for(i = EXTPHYSMEM/PGSIZE, i < first_free/PGSIZE, i++) {
+		pages[i].pp_ref = 1;
+	}
+	for(i = first_free/PGSIZE; i < npages, i++) {
+		pages[i].pp_ref = 0;
+		pages[i].pp_link = page_free_list;
+		page_free_list = &pages[i];
+	}
+	//
+	// Change the code to reflect this.
+	// NB: DO NOT actually touch the physical memory corresponding to
+	// free pages!
+}
+```
+
+**page_alloc()**
+
+```c
+struct PageInfo *
+page_alloc(int alloc_flags)
+{
+	// Fill this function in
+	if(page_free_list == NULL) {
+		return NULL;
+	}
+	
+	struct PageInfo* allocated_page = page_free_list;
+	page_free_list = page_free_list->pp_link;
+
+	allocated_page->pp_link = NULL;
+
+	if(alloc_flags & ALLOC_ZERO) {
+		memset(page2kva(allocated_page), '/0', PGSIZE);
+	}
+
+	return allocated_page;
+}
+```
+
+**page_free()**
+
+```c
+void
+page_free(struct PageInfo *pp)
+{
+	// Fill this function in
+	// Hint: You may want to panic if pp->pp_ref is nonzero or
+	// pp->pp_link is not NULL.
+	if(pp->pp_ref != 0 || pp->pp_link != NULL) {
+		panic("Double check failed when free page");
+		return;
+	}
+
+	pp->pp_link = page_free_list;
+	page_free_list = &pp;
+}
+```
