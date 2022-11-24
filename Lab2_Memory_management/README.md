@@ -554,7 +554,7 @@ boot_map_region(pde_t *pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm
 
 #### Answers
 
-To Q2:
+**To Q2:**
 Ctrl A + C open qemu monitor, type `info pg`:
 ```
 (qemu) info pg
@@ -595,7 +595,7 @@ VPN range     Entry         Flags        Physical page
 
 |Entry|Base Virtual Addr|Points to (logically)|
 |---|---|---|
-|1023||Page table for top 4MB of phys memory|
+|1023|0xffc0000 |Page table for top 4MB of phys memory|
 |...|...|...|
 |960|0xf0000000|Page table for [0-4) MB of phys memory|
 |959|0xefc00000|MMIOLIM|
@@ -604,3 +604,12 @@ VPN range     Entry         Flags        Physical page
 |956|0xef000000|UPAGES|
 |...|...|...|
 |0|0x00000000|same as 960|
+
+**To Q3:**
+
+ULIM和UTOP将虚拟内存分为各个段。(ULIM, 4GB)只有内核环境能读写，(UTOP, ULIM]内核和用户环境都可以读取，[0x0, UTOP]是用户环境空间。这些内存空间被权限位所保护，如PTE_W(可写)和PTE_U(用户)，这些是在页表/页目录项中设置的标识。
+
+具体用于保护的机制是当前特权级别(CPL)，CS的低2位。CPL=0则代表特权O/S，CPL=3 代表用户可访问。这也被用来检测当前的模式，以及我们是否可以写入虚拟内存地址。
+
+**To Q4:**
+JOS能支持的最大物理内存是256 MB。这是因为我们希望能够将所有的线性地址映射到物理地址。事实证明这样做使它更容易从物理地址反向映射到虚拟地址。
