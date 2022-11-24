@@ -15,8 +15,8 @@ static size_t npages_basemem;	// Amount of base memory (in pages)
 
 // These variables are set in mem_init()
 pde_t *kern_pgdir;		// Kernel's initial page directory
-struct PageInfo *pages;		// Physical page state array
-static struct PageInfo *page_free_list;	// Free list of physical pages
+struct PageInfo *pages;		// Physical page state array pages结构体数组是用于映射所有内存空间
+static struct PageInfo *page_free_list;	// Free list of physical 指针指向的结构体所映射的内存空间均可用
 
 
 // --------------------------------------------------------------
@@ -413,6 +413,16 @@ static void
 boot_map_region(pde_t *pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm)
 {
 	// Fill this function in
+	pte_t* PTT;
+	size_t end_addr = va + size;
+	for(; va < end_addr; va += PGSIZE, pa += PGSIZE) {
+		PTT = pgdir_walk(pgdir, (void*)va, 1);
+		if(!PTT) {
+			return;
+		}
+		*PTT = pa | perm | PTE_P;
+	}
+
 
 }
 
@@ -445,27 +455,36 @@ int
 page_insert(pde_t *pgdir, struct PageInfo *pp, void *va, int perm)
 {
 	// Fill this function in
-	pte_t* pte = pgdir_walk(pgdir, va, 1);
-	if(pte == NULL) {
+	pte_t* pte = pgdir_walk(pgdir, va, 1);	// Get pte of va, if not, establish one 
+	if(pte == NULL) {		// allocate failed, no space
 		return -E_NO_MEM;
 	}
 
-	if(*pte & PTE_P) {
-		if(pa2page(pp) == PTE_ADDR(pte)) {
-			*pte = page2pa(pp) | perm | PTE_P;
-			return 0;
-		}
-	}
-	else {
-		page_remove()
-	}
+	//if(*pte & PTE_P) {	// if page have existed and Present
+	//	if(pa2page(pp) == PTE_ADDR(pte)) {	// same page?
+	//		*pte = page2pa(pp) | perm | PTE_P;
+	//		return 0;
+	//	}
+	//	else {
+	//		page_remove(pgdir, va);
+	//	}
+	//}
 
+	//注意如果已映射的物理页和待插入的物理页是同一页的话，不能先移除物理页p再将pp的引用加1，
+	//因为一旦移除物理页pte，p可能因为引用为0而被释放，
+	//进而page_free_list指向这块内存页，将其标记为可用，而此时pp的物理页是不可用的。
+	pp->pp_ref ++;
+	if(*pte & PTE_P) {
+		page_remove(pgdir, va);
+	}
+	*pte = page2pa(pp) | perm | PTE_P;
+	tlb_invalidate(pgdir, va);
 	return 0;
 }
 
 //
 // Return the page mapped at virtual address 'va'.
-// If pte_store is not zero, then we store in it the address
+// If pte_store is not zero, then we store in it the pte address
 // of the pte for this page.  This is used by page_remove and
 // can be used to verify page permissions for syscall arguments,
 // but should not be used by most callers.
@@ -478,14 +497,14 @@ struct PageInfo *
 page_lookup(pde_t *pgdir, void *va, pte_t **pte_store)
 {
 	// Fill this function in
-	pte_t* pte = pgdir_walk(pgdir, va, 0);
+	pte_t* pte = pgdir_walk(pgdir, va, 0);	// find va's pte, not create
 	if(pte == NULL) {
 		return NULL;
 	}
 	if(pte_store) {
 		*pte_store = pte;
 	}
-	return pa2page(PTE_ADDR(pte));
+	return pa2page(PTE_ADDR(*pte)); // return PageInfo struct
 }
 
 //
@@ -509,12 +528,12 @@ page_remove(pde_t *pgdir, void *va)
 	// Fill this function in
 	pte_t* PTT;
 	pte_t** pte_store = &PTT;
-	struct PageInfo* pi = page_lookup(pgdir, va, pte_store);
+	struct PageInfo* pi = page_lookup(pgdir, va, pte_store);	//get va's pa_PageInfo
 	if(!pi) {
 		return;
 	}
 	page_decref(pi);
-	*PTT = 0;
+	*PTT = 0;		// clear PTE
 	tlb_invalidate(pgdir, va);
 }
 

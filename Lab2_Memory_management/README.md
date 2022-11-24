@@ -37,6 +37,8 @@ In the file `kern/pmap.c`, you must implement code for the following functions (
 > 
 > check_page_free_list() and check_page_alloc() test your physical page allocator. 
 
+pages结构体数组是用于映射所有内存空间的，page_free_list指针指向的结构体所映射的内存空间均可用。page_alloc函数将从 pages 数组空间中分配可用空间，结构体映射的物理页地址将作为线性地址的页表，将其存储到页目录里。
+
 **boot_alloc()**
 
 boot_alloc() use a magic symbol `end` to get BSS tail which pointe to first free memory.
@@ -105,7 +107,7 @@ code as discribe:
 	memset(pages, 0, npages * sizeof(struct PageInfo));
 ```
 
-**page_init**
+**page_init()**
 
 ```c
 void
@@ -234,7 +236,12 @@ page_insert()
 `check_page()`, called from `mem_init()`, tests your page table management routines. You should make sure it reports success before proceeding.
 
 **pgdir_walk()**
+
+`pgdir_walk()`函数根据线性地址返回二级页表项入口。首先获取页目录项位置，使用指针指向其索引位置。如果页目录项不存在二级页表映射，且create标识为0，则返回NULL。否则使用page_alloc函数分配页表空间，分配失败则返回NULL，否则将分配的PageInfo结构体引用加1，并将其对应的物理页地址和权限（二级页表权限设为 kern R/W, user R/W）存在页目录项中。二级页表物理地址是4K对齐的，将其低12位清零然后转化为内核地址，使用指针指向它。注意到页目录和页表存的是物理地址，而指向页目录和页表的指针需要使用逻辑地址。最后根据指向二级页表的指针和通过线性地址求得的二级页表项索引，返回指向二级页表项的指针。
+
 Given 'pgdir', a pointer to a page directory, pgdir_walk returns a pointer to the page table entry (PTE) for linear address 'va'.
+
+pgdir_walk()只负责创建二级页表，然后返回指向二级页表项的指针，不对二级页表做处理，也不做其对物理页映射。
 
 ```c
 pte_t *
@@ -270,10 +277,15 @@ pgdir_walk(pde_t *pgdir, const void *va, int create)
 
 **page_lookup()**
 
+`page_lookup()`函数根据线性地址返回二级页表项所指的物理页对应的PageInfo数据结构。
+
+`page_lookup()`函数调用`pgdir_walk()`获得指向二级页表项的指针，不允许创建二级页表。如果页目录项不存在二级页表映射且不允许创建二级页表，或者没有空间分配二级页表，`pgdir_walk()`会返回NULL，则page_lookup()返回NULL。如果获得的二级页表项不存在物理页映射，则`page_lookup()`返回NULL。否则将二级页表项的地址存于`pte_t **pte_store`，`pgdir_walk()`返回的二级页表项指针内容是所指的物理页物理地址，将其低12位清零，并返回对应的`PageInfo`数据结构。
+
 ```c
 struct PageInfo *
 page_lookup(pde_t *pgdir, void *va, pte_t **pte_store)
 {
+	// pte_t **pte_store 存储的是二级页表项的地址
 	// Fill this function in
 	pte_t* pte = pgdir_walk(pgdir, va, 0);
 	if(pte == NULL) {
@@ -282,11 +294,15 @@ page_lookup(pde_t *pgdir, void *va, pte_t **pte_store)
 	if(pte_store) {
 		*pte_store = pte;
 	}
-	return pa2page(PTE_ADDR(pte));
+	return pa2page(PTE_ADDR(*pte));	// return PageInfo struct
 }
 ```
 
 **page_remove()**
+
+page_remove()函数移除线性地址对应的物理页，清空二级页表项，使tlb无效化。
+
+page_remove()函数通过调用page_lookup()函数获得线性地址对应的物理页的PageInfo数据结构，然后调用page_decref()函数将PageInfo对象引用减1，如果引用为0则释放该内存页。
 
 ```c
 void
@@ -307,6 +323,55 @@ page_remove(pde_t *pgdir, void *va)
 
 **page_insert()**
 
-```c
+`page_insert()`函数将映射物理页的`PageInfo`数据结构`pp`的地址及访问权限存于线性地址`va`所对应的二级页表项内。
 
+`page_insert()`函数首先调用`pgdir_walk()`函数获得指向线性地址的二级页表项的指针，允许创建二级页表。当对应的二级页表不存在且没有足够内存空间创建二级页表时，`pgdir_walk()`函数返回NULL，则`page_insert()`函数返回-1。
+
+否则`pgdir_walk()`函数返回指向二级页表项的指针，当该指针的P存在位为1时，代表当前二级页表项存在物理页映射，这时候需要判断该物理页与要插入的物理页是否是同一页，判断方法是：将指针内容（已经是物理地址）低12位清零，与函数参数`PageInfo *pp`转化为`PageInfo`的指针进行比较。
+- 如果是同一页，应该允许修改权限（包括降低权限，所以先清空低12位）后直接返回0，
+- 否则调用page_remove()函数移除线性地址对应的物理页，清空二级页表项。
+
+接着待插入的PageInfo指针pp的引用加1，将pp对应的物理页物理地址及权限存于二级页表项处，使tlb无效化。
+
+
+
+```c
+int
+page_insert(pde_t *pgdir, struct PageInfo *pp, void *va, int perm)
+{
+	// Fill this function in
+	pte_t* pte = pgdir_walk(pgdir, va, 1);	// Get pte of va, if not, establish one 
+	if(pte == NULL) {		// allocate failed, no space
+		return -E_NO_MEM;
+	}
+
+	// try not to distinguish same page situation
+	//if(*pte & PTE_P) {	// if page have existed and Present
+	//	if(pa2page(pp) == PTE_ADDR(pte)) {	// same page?
+	//		*pte = page2pa(pp) | perm | PTE_P;
+	//		return 0;
+	//	}
+	//	else {
+	//		page_remove(pgdir, va);
+	//	}
+	//}
+
+	//注意如果已映射的物理页和待插入的物理页是同一页的话，不能先移除物理页p再将pp的引用加1，
+	//因为一旦移除物理页pte，p可能因为引用为0而被释放，
+	//进而page_free_list指向这块内存页，将其标记为可用，而此时pp的物理页是不可用的。
+	pp->pp_ref ++;
+	if(*pte & PTE_P) {
+		page_remove(pgdir, va);
+	}
+	*pte = page2pa(pp) | perm | PTE_P;
+	tlb_invalidate(pgdir, va);
+	return 0;
+}
 ```
+
+
+**boot_map_region()**
+
+boot_map_region()函数将线性地址空间[va, va+size)映射到物理地址空间[pa, pa+size)。pa、va是页对齐的，size是页大小的倍数。
+
+boot_map_region()函数循环调用pgdir_walk()函数返回指向二级页表项的指针，然后将对应的物理地址和权限存储到该指针。
