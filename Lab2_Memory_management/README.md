@@ -375,3 +375,22 @@ page_insert(pde_t *pgdir, struct PageInfo *pp, void *va, int perm)
 boot_map_region()函数将线性地址空间[va, va+size)映射到物理地址空间[pa, pa+size)。pa、va是页对齐的，size是页大小的倍数。
 
 boot_map_region()函数循环调用pgdir_walk()函数返回指向二级页表项的指针，然后将对应的物理地址和权限存储到该指针。
+
+```c
+static void
+boot_map_region(pde_t *pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm)
+{
+	// Fill this function in
+	pte_t* PTT;
+	size_t end_addr = va + size;
+	for(; va < end_addr; va += PGSIZE, pa += PGSIZE) {
+		PTT = pgdir_walk(pgdir, (void*)va, 1);
+		if(!PTT) {
+			return;
+		}
+		*PTT = pa | perm | PTE_P;
+	}
+}
+```
+
+## Part3: Kernel Address Space

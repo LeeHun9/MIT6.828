@@ -422,8 +422,6 @@ boot_map_region(pde_t *pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm
 		}
 		*PTT = pa | perm | PTE_P;
 	}
-
-
 }
 
 //
