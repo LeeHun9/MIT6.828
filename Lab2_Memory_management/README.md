@@ -394,3 +394,213 @@ boot_map_region(pde_t *pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm
 ```
 
 ## Part3: Kernel Address Space
+
+JOS divides the processor's 32-bit linear address space into two parts. 
+- User environments (processes)
+- kernel
+
+The dividing line is defined somewhat arbitrarily by the symbol `ULIM` in `inc/memlayout.h`, reserving approximately 256MB of virtual address space for the kernel. JOS memory layout:
+
+```
+/*
+ * Virtual memory map:                                Permissions
+ *                                                    kernel/user
+ *
+ *    4 Gig -------->  +------------------------------+
+ *                     |                              | RW/--
+ *                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ *                     :              .               :
+ *                     :              .               :
+ *                     :              .               :
+ *                     |~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~| RW/--
+ *                     |                              | RW/--
+ *                     |   Remapped Physical Memory   | RW/--
+ *                     |                              | RW/--
+ *    KERNBASE, ---->  +------------------------------+ 0xf0000000      --+
+ *    KSTACKTOP        |     CPU0's Kernel Stack      | RW/--  KSTKSIZE   |
+ *                     | - - - - - - - - - - - - - - -|                   |
+ *                     |      Invalid Memory (*)      | --/--  KSTKGAP    |
+ *                     +------------------------------+                   |
+ *                     |     CPU1's Kernel Stack      | RW/--  KSTKSIZE   |
+ *                     | - - - - - - - - - - - - - - -|                 PTSIZE
+ *                     |      Invalid Memory (*)      | --/--  KSTKGAP    |
+ *                     +------------------------------+                   |
+ *                     :              .               :                   |
+ *                     :              .               :                   |
+ *    MMIOLIM ------>  +------------------------------+ 0xefc00000      --+
+ *                     |       Memory-mapped I/O      | RW/--  PTSIZE
+ * ULIM, MMIOBASE -->  +------------------------------+ 0xef800000
+ *                     |  Cur. Page Table (User R-)   | R-/R-  PTSIZE
+ *    UVPT      ---->  +------------------------------+ 0xef400000
+ *                     |          RO PAGES            | R-/R-  PTSIZE
+ *    UPAGES    ---->  +------------------------------+ 0xef000000
+ *                     |           RO ENVS            | R-/R-  PTSIZE
+ * UTOP,UENVS ------>  +------------------------------+ 0xeec00000
+ * UXSTACKTOP -/       |     User Exception Stack     | RW/RW  PGSIZE
+ *                     +------------------------------+ 0xeebff000
+ *                     |       Empty Memory (*)       | --/--  PGSIZE
+ *    USTACKTOP  --->  +------------------------------+ 0xeebfe000
+ *                     |      Normal User Stack       | RW/RW  PGSIZE
+ *                     +------------------------------+ 0xeebfd000
+ *                     |                              |
+ *                     |                              |
+ *                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ *                     .                              .
+ *                     .                              .
+ *                     .                              .
+ *                     |~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~|
+ *                     |     Program Data & Heap      |
+ *    UTEXT -------->  +------------------------------+ 0x00800000
+ *    PFTEMP ------->  |       Empty Memory (*)       |        PTSIZE
+ *                     |                              |
+ *    UTEMP -------->  +------------------------------+ 0x00400000      --+
+ *                     |       Empty Memory (*)       |                   |
+ *                     | - - - - - - - - - - - - - - -|                   |
+ *                     |  User STAB Data (optional)   |                 PTSIZE
+ *    USTABDATA ---->  +------------------------------+ 0x00200000        |
+ *                     |       Empty Memory (*)       |                   |
+ *    0 ------------>  +------------------------------+                 --+
+ *
+ * (*) Note: The kernel ensures that "Invalid Memory" is *never* mapped.
+ *     "Empty Memory" is normally unmapped, but user programs may map pages
+ *     there if desired.  JOS user programs map pages temporarily at UTEMP.
+ *
+```
+![](../images/1.jpg)
+**Permissions and Fault Isolation**
+
+The user environment will have no permission to any of the memory `above ULIM`, while the kernel will be able to read and write this memory. For the address range `[UTOP,ULIM)`, both the kernel and the user environment have the same permission: can read but not write. This range of address is used to expose certain kernel data structures.Lastly, the address space `below UTOP` is for the user environment to use; the user environment will set permissions for accessing this memory.
+
+### Initializing the Kernel Address Space
+
+#### Exercise5: 
+> Fill in the missing code in mem_init() after the call to check_page()
+> Your code should now pass the check_kern_pgdir() and check_page_installed_pgdir() checks.
+
+**[UPAGES, sizeof(PAGES) ] => [pages, sizeof(PAGES)]**
+
+```c
+//////////////////////////////////////////////////////////////////////
+// Map 'pages' read-only by the user at linear address UPAGES
+// Permissions:
+//    - the new image at UPAGES -- kernel R, user R
+//      (ie. perm = PTE_U | PTE_P)
+//    - pages itself -- kernel RW, user NONE
+// Your code goes here:
+boot_map_region(kern_pgdir, (intptr_t)UPAGES, npages * sizeof(structPageInfo), PADDR(pages), PTE_U | PTE_P);
+```
+
+**[KSTACKTOP – KSTKSIZE, KSTKSIZE] => [bootstack, KSTKSIZE]**
+
+```c
+//////////////////////////////////////////////////////////////////////
+// Use the physical memory that 'bootstack' refers to as the kernel
+// stack.  The kernel stack grows down from virtual address KSTACKTOP.
+// We consider the entire range from [KSTACKTOP-PTSIZE, KSTACKTOP)
+// to be the kernel stack, but break this into two pieces:
+//     * [KSTACKTOP-KSTKSIZE, KSTACKTOP) -- backed by physical memory
+//     * [KSTACKTOP-PTSIZE, KSTACKTOP-KSTKSIZE) -- not backed; so if
+//       the kernel overflows its stack, it will fault rather than
+//       overwrite memory.  Known as a "guard page".
+//     Permissions: kernel RW, user NONE
+// Your code goes here:
+boot_map_region(kern_pgdir, (intptr_t)(KSTACKTOP-KSTKSIZE), KSTKSIZE, PADDR(bootstack), PTE_W | PTE_P);
+```
+
+**[KERNBASE, 4G) => [0, pages in the memory)**
+
+```c
+//////////////////////////////////////////////////////////////////////
+// Map all of physical memory at KERNBASE.
+// Ie.  the VA range [KERNBASE, 2^32) should map to
+//      the PA range [0, 2^32 - KERNBASE)
+// We might not have 2^32 - KERNBASE bytes of physical memory, but
+// we just set up the mapping anyway.
+// Permissions: kernel RW, user NONE
+// Your code goes here:
+boot_map_region(kern_pgdir, (intptr_t)KERNBASE, ROUNDUP(0xffffffff -KERNBASE, PGSIZE), 0, PTE_W | PTE_P);
+```
+
+But this one will cause overflow in `boot_map_region()`, because `endaddr = 0xf0000000 + 0x10000000 = 0`. Rewrite code in `boot_map_region()`, use Page num to iterate the addr space.
+
+```c
+static void
+boot_map_region(pde_t *pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm)
+{
+	// Fill this function in
+	pte_t* PTE;
+	size_t pgnum = PGNUM(size);
+	size_t end_addr = va + pgnum * PGSIZE;
+
+	size_t i;
+	for(i = 0; i < pgnum; i++) {
+		PTE = pgdir_walk(pgdir, (void*)va, 1);
+		if(!PTE) {
+			return;
+		}
+		*PTE = pa | perm | PTE_P;	// *PTE == physical addr of va
+		va += PGSIZE;
+		pa += PGSIZE;
+	}
+}
+```
+
+#### Questions
+
+2. What entries (rows) in the page directory have been filled in at this point? What addresses do they map and where do they point?
+3. We have placed the kernel and user environment in the same address space. Why will user programs not be able to read or write the kernel's memory? What specific mechanisms protect the kernel memory?
+4. What is the maximum amount of physical memory that this operating system can support? Why?
+5. How much space overhead is there for managing memory, if we actually had the maximum amount of physical memory? How is this overhead broken down?
+
+#### Answers
+
+To Q2:
+Ctrl A + C open qemu monitor, type `info pg`:
+```
+(qemu) info pg
+VPN range     Entry         Flags        Physical page
+[ef000-ef3ff]  PDE[3bc]     -------UWP
+  [ef000-ef03f]  PTE[000-03f] -------U-P 0011b-0015a
+[ef400-ef7ff]  PDE[3bd]     -------U-P
+  [ef7bc-ef7bc]  PTE[3bc]     -------UWP 003fd
+  [ef7bd-ef7bd]  PTE[3bd]     -------U-P 0011a
+  [ef7bf-ef7bf]  PTE[3bf]     -------UWP 003fe
+  [ef7c0-ef7df]  PTE[3c0-3df] ----A--UWP 003ff 003fc 003fb 003fa 003f9 003f8 ..
+  [ef7e0-ef7ff]  PTE[3e0-3ff] -------UWP 003dd 003dc 003db 003da 003d9 003d8 ..
+[efc00-effff]  PDE[3bf]     -------UWP
+  [efff8-effff]  PTE[3f8-3ff] --------WP 0010e-00115
+[f0000-f03ff]  PDE[3c0]     ----A--UWP
+  [f0000-f0000]  PTE[000]     --------WP 00000
+  [f0001-f009f]  PTE[001-09f] ---DA---WP 00001-0009f
+  [f00a0-f00b7]  PTE[0a0-0b7] --------WP 000a0-000b7
+  [f00b8-f00b8]  PTE[0b8]     ---DA---WP 000b8
+  [f00b9-f00ff]  PTE[0b9-0ff] --------WP 000b9-000ff
+  [f0100-f0105]  PTE[100-105] ----A---WP 00100-00105
+  [f0106-f0114]  PTE[106-114] --------WP 00106-00114
+  [f0115-f0115]  PTE[115]     ---DA---WP 00115
+  [f0116-f0118]  PTE[116-118] --------WP 00116-00118
+  [f0119-f011a]  PTE[119-11a] ---DA---WP 00119-0011a
+  [f011b-f011b]  PTE[11b]     ----A---WP 0011b
+  [f011c-f011c]  PTE[11c]     ---DA---WP 0011c
+  [f011d-f015a]  PTE[11d-15a] ----A---WP 0011d-0015a
+  [f015b-f03bd]  PTE[15b-3bd] ---DA---WP 0015b-003bd
+  [f03be-f03ff]  PTE[3be-3ff] --------WP 003be-003ff
+[f0400-f7fff]  PDE[3c1-3df] ----A--UWP
+  [f0400-f7fff]  PTE[000-3ff] ---DA---WP 00400-07fff
+[f8000-fffff]  PDE[3e0-3ff] -------UWP
+  [f8000-fffff]  PTE[000-3ff] --------WP 08000-0ffff
+```
+
+以其中的`[ef000-ef3ff] PDE[3bc] -------UWP`为例，它表示该页目录项映射的线性空间范围是[ef000000, ef3fffff]，两者之差为3fffff，即4M大小。3bc表示索引是956。UWP表示该项是kernel RW, user RW且president的。
+
+|Entry|Base Virtual Addr|Points to (logically)|
+|---|---|---|
+|1023||Page table for top 4MB of phys memory|
+|...|...|...|
+|960|0xf0000000|Page table for [0-4) MB of phys memory|
+|959|0xefc00000|MMIOLIM|
+|958|0xef800000|ULIM|
+|957|0xef400000|UVPT|
+|956|0xef000000|UPAGES|
+|...|...|...|
+|0|0x00000000|same as 960|
