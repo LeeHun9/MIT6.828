@@ -3,7 +3,7 @@ study record for MIT6.828
 ## schedule:
 ### LABs
 - [x] Lab 1: C, Assembly, Tools, and Bootstrapping
-- [ ] Lab 2: Memory management
+- [x] Lab 2: Memory management
 - [ ] Lab 3: User-Level Environments
 - [ ] Lab 4: Preemptive Multitasking
 - [ ] Lab 5: File system, spawn, and sh
