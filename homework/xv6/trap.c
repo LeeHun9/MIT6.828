@@ -86,6 +86,18 @@ trap(struct trapframe *tf)
               tf->trapno, cpuid(), tf->eip, rcr2());
       panic("trap");
     }
+    // my code
+    
+    if(tf->trapno == T_PGFLT) {    // Is Page fault?
+      uint v_fault_addr = rcr2();
+      uint size = PGROUNDDOWN(v_fault_addr);
+      cprintf("T_GPFLT: 0x%x\n", v_fault_addr);
+      if (allocuvm(myproc()->pgdir, size, size+PGSIZE) == 0) {
+        panic("trap T_GPFLT");
+      }
+      break;
+    }
+
     // In user space, assume process misbehaved.
     cprintf("pid %d %s: trap %d err %d on cpu %d "
             "eip 0x%x addr 0x%x--kill proc\n",
