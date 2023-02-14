@@ -1,5 +1,7 @@
 {
     "files.associations": {
-        "kclock.h": "c"
+        "kclock.h": "c",
+        "utility": "cpp",
+        "types.h": "c"
     }
 }

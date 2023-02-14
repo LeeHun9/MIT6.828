@@ -21,6 +21,7 @@
 #define SYS_mkdir  20
 #define SYS_close  21
 #define SYS_date   22       // my new syscall
+#define SYS_alarm  23       // my new syscall
 
 //char *syscall_name[] = {"fork","exit","wait","pipe","read",
 //                        "kill","exec","fstat","chdir","dup",

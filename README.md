@@ -14,8 +14,8 @@ study record for MIT6.828
 - [x] HW1: Boot xv6
 - [x] HW2: shell
 - [x] HW3: system calls
-- [ ] HW4: lazy page allcation
-- [ ] HW5: xv6 CPU alarm
+- [x] HW4: lazy page allcation
+- [x] HW5: xv6 CPU alarm
 - [ ] HW6: multithreaded programming
 - [ ] HW7: xv6 locks
 - [ ] HW8: uthreads

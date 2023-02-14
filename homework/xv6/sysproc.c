@@ -51,9 +51,9 @@ sys_sbrk(void)
   if(argint(0, &n) < 0)
     return -1;
   addr = myproc()->sz;
-  myproc()->sz += n;
-  //if(growproc(n) < 0)
-  //  return -1;
+  //myproc()->sz += n;
+  if(growproc(n) < 0)
+    return -1;
   return addr;
 }
 
@@ -102,5 +102,19 @@ sys_date(void)
 
   cmostime(r);
 
+  return 0;
+}
+
+int
+sys_alarm(void)
+{
+  int ticks;
+  void (*handler)();
+  if(argint(0, &ticks) < 0)
+    return -1;
+  if(argptr(1, (char**)&handler, 1) < 0)
+    return -1;
+  myproc()->alarmticks = ticks;
+  myproc()->alarmhandler = handler;
   return 0;
 }
