@@ -2,6 +2,8 @@
     "files.associations": {
         "kclock.h": "c",
         "utility": "cpp",
-        "types.h": "c"
+        "types.h": "c",
+        "pmap.h": "c",
+        "memlayout.h": "c"
     }
 }

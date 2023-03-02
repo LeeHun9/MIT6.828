@@ -30,6 +30,6 @@ _start:
 	pushl $0
 
 args_exist:
-	call libmain
+	call libmain 		// in lib/libmain.c
 1:	jmp 1b
 

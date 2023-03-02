@@ -16,8 +16,8 @@ static size_t npages_basemem;	// Amount of base memory (in pages)
 
 // These variables are set in mem_init()
 pde_t *kern_pgdir;		// Kernel's initial page directory
-struct PageInfo *pages;		// Physical page state array pages结构体数组是用于映射所有内存空间
-static struct PageInfo *page_free_list;	// Free list of physical 指针指向的结构体所映射的内存空间均可用
+struct PageInfo *pages;		// Physical page state array pages记录所有物理页
+static struct PageInfo *page_free_list;	// Free list of physical 记录空闲物理页的
 
 
 // --------------------------------------------------------------
@@ -127,6 +127,7 @@ mem_init(void)
 	size_t n;
 
 	// Find out how much memory the machine has (npages & npages_basemem).
+	// 检测现在系统中有多少可用的内存空间
 	i386_detect_memory();
 
 	// Remove this line when you're ready to test this function.
@@ -161,7 +162,6 @@ mem_init(void)
 	// LAB 3: Your code here.
 	envs = (struct Env *)boot_alloc(NENV * sizeof(struct Env));
 	memset(envs, 0, NENV * sizeof(struct Env));
-
 	//////////////////////////////////////////////////////////////////////
 	// Now that we've allocated the initial kernel data structures, we set
 	// up the list of free physical pages. Once we've done so, all further
@@ -194,7 +194,7 @@ mem_init(void)
 	//    - the new image at UENVS  -- kernel R, user R
 	//    - envs itself -- kernel RW, user NONE
 	// LAB 3: Your code here.
-	boot_map_region(kern_pgdir, (intptr_t)UENVS, ROUNDUP(NENV*sizeof(struct Env), PGSIZE), PADDR(envs), PTE_U | PTE_P);
+	boot_map_region(kern_pgdir, (uintptr_t)UENVS, ROUNDUP(NENV*sizeof(struct Env), PGSIZE), PADDR(envs), PTE_U | PTE_P);
 
 	//////////////////////////////////////////////////////////////////////
 	// Use the physical memory that 'bootstack' refers to as the kernel
@@ -604,7 +604,17 @@ int
 user_mem_check(struct Env *env, const void *va, size_t len, int perm)
 {
 	// LAB 3: Your code here.
+	uint32_t start_addr = ROUNDDOWN((int32_t)va, PGSIZE);
+	uint32_t end_addr = ROUNDUP((int32_t)(va+len), PGSIZE);
+	pte_t* PTE = NULL;
 
+	for(; start_addr < end_addr; start_addr += PGSIZE) {
+		PTE = pgdir_walk(env->env_pgdir, (const void*)start_addr, 0);
+		if (start_addr > (int32_t)ULIM || PTE == NULL || (*PTE & perm) != perm || !(*PTE & PTE_P)) {
+			user_mem_check_addr = start_addr < (int32_t)va? (int32_t)va: start_addr;
+			return -E_FAULT;
+		}
+	}
 	return 0;
 }
 
