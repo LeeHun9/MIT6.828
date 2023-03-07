@@ -16,9 +16,9 @@ study record for MIT6.828
 - [x] HW3: system calls
 - [x] HW4: lazy page allcation
 - [x] HW5: xv6 CPU alarm
-- [ ] HW6: multithreaded programming
-- [ ] HW7: xv6 locks
-- [ ] HW8: uthreads
+- [x] HW6: multithreaded programming
+- [x] HW7: xv6 locks
+- [x] HW8: uthreads
 - [ ] HW9: barrier
 - [ ] HW10: big files
 - [ ] HW11: crash
